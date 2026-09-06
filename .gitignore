@@ -39,3 +39,26 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/lib/generated/prisma
+
+# local sqlite database (recreate with: prisma migrate dev && prisma db seed)
+*.db
+*.db-journal
+
+# agent worktree copies
+.claude/worktrees/
+
+# backups locais de transações
+backup-transacoes-*.json
+email-sync.log
+
+# chave da conta de servico do Firebase (NUNCA commitar)
+firebase-service-account*.json
+serviceAccount*.json
+*-firebase-adminsdk-*.json
+
+# docs de assistentes geradas pelo `prisma init` (recriaveis)
+.windsurf/
+.agents/
+.claude/skills/

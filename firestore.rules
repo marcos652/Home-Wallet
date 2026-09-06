@@ -1,0 +1,77 @@
+rules_version = '2';
+
+// Como o navegador fala direto com o banco, é ISTO que protege os dados.
+// Regra geral: cada um só enxerga e altera o que tem o seu próprio userId.
+// O master pode ler tudo, mas não escrever no dinheiro dos outros.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() {
+      return request.auth != null;
+    }
+
+    function meuUid() {
+      return request.auth.uid;
+    }
+
+    function ehMaster() {
+      return logado()
+        && exists(/databases/$(database)/documents/users/$(meuUid()))
+        && get(/databases/$(database)/documents/users/$(meuUid())).data.role == 'MASTER';
+    }
+
+    // Dono do documento já existente.
+    function souDono() {
+      return logado() && resource.data.userId == meuUid();
+    }
+
+    // Dono do documento sendo criado — impede criar lançamento no nome de outro.
+    function vouSerDono() {
+      return logado() && request.resource.data.userId == meuUid();
+    }
+
+    match /users/{userId} {
+      allow read: if meuUid() == userId || ehMaster();
+      allow create: if meuUid() == userId;
+      // O próprio usuário não pode se promover a MASTER nem se reativar.
+      allow update: if (meuUid() == userId
+                        && request.resource.data.role == resource.data.role
+                        && request.resource.data.status == resource.data.status)
+                    || ehMaster();
+      allow delete: if false;
+    }
+
+    match /accounts/{id} {
+      allow read: if souDono() || ehMaster();
+      allow create: if vouSerDono();
+      allow update, delete: if souDono();
+    }
+
+    match /categories/{id} {
+      allow read: if souDono() || ehMaster();
+      allow create: if vouSerDono();
+      allow update, delete: if souDono();
+    }
+
+    match /transactions/{id} {
+      allow read: if souDono() || ehMaster();
+      allow create: if vouSerDono();
+      allow update, delete: if souDono();
+    }
+
+    match /emailIntegrations/{userId} {
+      allow read, write: if meuUid() == userId;
+    }
+
+    match /processedEmails/{messageId} {
+      allow read: if souDono();
+      allow create: if vouSerDono();
+      allow update, delete: if false;
+    }
+
+    // Qualquer coisa fora do previsto fica bloqueada.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
