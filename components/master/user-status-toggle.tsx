@@ -4,43 +4,46 @@ import { useTransition } from "react";
 import { Loader2, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { toggleUserStatus } from "@/lib/actions/users";
+import { alternarStatusUsuario } from "@/lib/data";
 
 export function UserStatusToggle({
   userId,
   status,
+  onMudou,
 }: {
   userId: string;
   status: "ACTIVE" | "INACTIVE";
+  onMudou: () => void;
 }) {
-  const [isPending, startTransition] = useTransition();
-  const isActive = status === "ACTIVE";
+  const [pendente, iniciar] = useTransition();
+  const ativo = status === "ACTIVE";
 
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      disabled={isPending}
+      disabled={pendente}
       onClick={() => {
-        startTransition(async () => {
+        iniciar(async () => {
           try {
-            await toggleUserStatus(userId);
-            toast.success(isActive ? "Usuário desativado" : "Usuário reativado");
+            await alternarStatusUsuario(userId, status);
+            toast.success(ativo ? "Usuário desativado" : "Usuário reativado");
+            onMudou();
           } catch (error) {
             toast.error(error instanceof Error ? error.message : "Algo deu errado");
           }
         });
       }}
     >
-      {isPending ? (
+      {pendente ? (
         <Loader2 className="size-3.5 animate-spin" />
-      ) : isActive ? (
+      ) : ativo ? (
         <UserX className="size-3.5" strokeWidth={1.75} />
       ) : (
         <UserCheck className="size-3.5" strokeWidth={1.75} />
       )}
-      {isActive ? "Desativar" : "Reativar"}
+      {ativo ? "Desativar" : "Reativar"}
     </Button>
   );
 }

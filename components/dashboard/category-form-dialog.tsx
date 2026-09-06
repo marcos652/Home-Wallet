@@ -16,26 +16,39 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { createCategory } from "@/lib/actions/categories";
+import { criarCategoria } from "@/lib/data";
+import { useFirebase } from "@/components/auth/firebase-provider";
 
-const PALETTE = ["#6366f1", "#22c55e", "#ef4444", "#f97316", "#3b82f6", "#ec4899", "#a855f7", "#64748b"];
+const PALETA = ["#6366f1", "#22c55e", "#ef4444", "#f97316", "#3b82f6", "#ec4899", "#a855f7", "#64748b"];
 
-export function CategoryFormDialog({ type }: { type: "INCOME" | "EXPENSE" }) {
+export function CategoryFormDialog({
+  type,
+  onSalvo,
+}: {
+  type: "INCOME" | "EXPENSE";
+  onSalvo: () => void;
+}) {
+  const { perfil } = useFirebase();
   const [open, setOpen] = useState(false);
-  const [color, setColor] = useState(PALETTE[0]);
-  const [error, setError] = useState<string>();
-  const [isPending, startTransition] = useTransition();
+  const [cor, setCor] = useState(PALETA[0]);
+  const [erro, setErro] = useState<string>();
+  const [pendente, iniciar] = useTransition();
 
-  function handleSubmit(formData: FormData) {
-    startTransition(async () => {
-      const result = await createCategory(formData);
-      if (result.error) {
-        setError(result.error);
-        return;
+  function salvar(formData: FormData) {
+    if (!perfil) return;
+    const name = String(formData.get("name") ?? "").trim();
+    if (!name) return setErro("Informe um nome para a categoria");
+
+    iniciar(async () => {
+      try {
+        await criarCategoria(perfil.uid, { name, type, color: cor });
+        setErro(undefined);
+        setOpen(false);
+        toast.success("Categoria criada");
+        onSalvo();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Não foi possível salvar");
       }
-      setError(undefined);
-      setOpen(false);
-      toast.success("Categoria criada");
     });
   }
 
@@ -47,12 +60,12 @@ export function CategoryFormDialog({ type }: { type: "INCOME" | "EXPENSE" }) {
       </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{type === "INCOME" ? "Nova categoria de receita" : "Nova categoria de despesa"}</DialogTitle>
+          <DialogTitle>
+            {type === "INCOME" ? "Nova categoria de receita" : "Nova categoria de despesa"}
+          </DialogTitle>
           <DialogDescription>Organize suas transações por categoria.</DialogDescription>
         </DialogHeader>
-        <form action={handleSubmit} className="flex flex-col gap-4">
-          <input type="hidden" name="type" value={type} />
-          <input type="hidden" name="color" value={color} />
+        <form action={salvar} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="name">Nome</Label>
             <Input id="name" name="name" placeholder="Ex: Educação" required autoFocus />
@@ -60,27 +73,24 @@ export function CategoryFormDialog({ type }: { type: "INCOME" | "EXPENSE" }) {
           <div className="flex flex-col gap-1.5">
             <Label>Cor</Label>
             <div className="flex flex-wrap gap-2">
-              {PALETTE.map((paletteColor) => (
+              {PALETA.map((c) => (
                 <button
-                  key={paletteColor}
+                  key={c}
                   type="button"
-                  onClick={() => setColor(paletteColor)}
+                  onClick={() => setCor(c)}
                   className="size-7 rounded-full ring-offset-2 ring-offset-background transition-all"
-                  style={{
-                    backgroundColor: paletteColor,
-                    boxShadow: color === paletteColor ? `0 0 0 2px ${paletteColor}` : undefined,
-                  }}
+                  style={{ backgroundColor: c, boxShadow: cor === c ? `0 0 0 2px ${c}` : undefined }}
                 >
-                  <span className="sr-only">{paletteColor}</span>
+                  <span className="sr-only">{c}</span>
                 </button>
               ))}
             </div>
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {erro && <p className="text-sm text-destructive">{erro}</p>}
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="outline" />}>Cancelar</DialogClose>
-            <Button type="submit" disabled={isPending}>
-              {isPending && <Loader2 className="size-4 animate-spin" />}
+            <Button type="submit" disabled={pendente}>
+              {pendente && <Loader2 className="size-4 animate-spin" />}
               Salvar
             </Button>
           </DialogFooter>

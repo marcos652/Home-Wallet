@@ -1,41 +1,70 @@
-import { Users, UserCheck, Wallet, Activity } from "lucide-react";
+"use client";
+
+import { Users, UserCheck, Wallet, Activity, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { UserGrowthChart, type MonthlySignups } from "@/components/master/user-growth-chart";
-import { prisma } from "@/lib/prisma";
+import { useFirebase } from "@/components/auth/firebase-provider";
+import { useAsync } from "@/lib/use-async";
+import { listarUsuarios, contasDoUsuario, lancamentosDoUsuario } from "@/lib/data";
 import { formatCurrency } from "@/lib/format";
 
-export default async function MasterOverviewPage() {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+export default function MasterOverviewPage() {
+  const { perfil } = useFirebase();
+  const uid = perfil?.uid;
 
-  const [totalUsers, activeUsers, accounts, monthTransactions, recentUsers] = await Promise.all([
-    prisma.user.count({ where: { role: "USER" } }),
-    prisma.user.count({ where: { role: "USER", status: "ACTIVE" } }),
-    prisma.account.findMany({ where: { user: { role: "USER" } } }),
-    prisma.transaction.findMany({
-      where: { account: { user: { role: "USER" } }, date: { gte: monthStart } },
-    }),
-    prisma.user.findMany({
-      where: { role: "USER", createdAt: { gte: sixMonthsAgo } },
-      select: { createdAt: true },
-    }),
-  ]);
+  // O Firestore não agrega no banco: buscamos tudo e somamos aqui no cliente.
+  const { dados, carregando } = useAsync(async () => {
+    if (!uid) return null;
+    const usuarios = await listarUsuarios();
+    const carteiras = await Promise.all(
+      usuarios.map(async (u) => {
+        const [contas, lancamentos] = await Promise.all([
+          contasDoUsuario(u.id),
+          lancamentosDoUsuario(u.id, 500),
+        ]);
+        return { contas, lancamentos };
+      }),
+    );
+    return { usuarios, carteiras };
+  }, [uid]);
 
-  const totalBalance = accounts.reduce((sum, a) => sum + a.balance, 0);
-  const monthVolume = monthTransactions.reduce((sum, t) => sum + t.amount, 0);
+  if (carregando || !dados) {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const { usuarios, carteiras } = dados;
+
+  const agora = new Date();
+  const inicioDoMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
+
+  const totalUsers = usuarios.length;
+  const activeUsers = usuarios.filter((u) => u.status === "ACTIVE").length;
+  const totalBalance = carteiras.reduce(
+    (soma, c) => soma + c.contas.reduce((s, a) => s + a.balance, 0),
+    0,
+  );
+  const monthVolume = carteiras.reduce(
+    (soma, c) =>
+      soma +
+      c.lancamentos.filter((l) => l.date >= inicioDoMes).reduce((s, l) => s + l.amount, 0),
+    0,
+  );
 
   const months: MonthlySignups[] = [];
   for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const d = new Date(agora.getFullYear(), agora.getMonth() - i, 1);
     const label = new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(d);
     months.push({ month: label.replace(".", ""), count: 0 });
   }
-  for (const user of recentUsers) {
+  for (const usuario of usuarios) {
     const diffMonths =
-      (now.getFullYear() - user.createdAt.getFullYear()) * 12 +
-      (now.getMonth() - user.createdAt.getMonth());
+      (agora.getFullYear() - usuario.createdAt.getFullYear()) * 12 +
+      (agora.getMonth() - usuario.createdAt.getMonth());
     const index = 5 - diffMonths;
     if (index >= 0 && index < months.length) {
       months[index].count += 1;

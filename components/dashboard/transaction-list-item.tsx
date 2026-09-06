@@ -1,45 +1,54 @@
 "use client";
 
-import { TransactionRow, type TransactionRowData } from "@/components/dashboard/transaction-row";
+import { TransactionRow } from "@/components/dashboard/transaction-row";
 import { TransactionFormDialog } from "@/components/dashboard/transaction-form-dialog";
 import { DeleteConfirmButton } from "@/components/dashboard/delete-confirm-button";
-import { deleteTransaction } from "@/lib/actions/transactions";
-
-type AccountOption = { id: string; name: string };
-type CategoryOption = { id: string; name: string; type: "INCOME" | "EXPENSE" };
+import { excluirLancamento, type Conta, type Categoria, type Lancamento } from "@/lib/data";
 
 export function TransactionListItem({
-  tx,
-  accounts,
-  categories,
+  lancamento,
+  nomeDaConta,
+  nomeDaCategoria,
+  contas,
+  categorias,
+  onMudou,
 }: {
-  tx: TransactionRowData & { accountId: string; categoryId: string | null };
-  accounts: AccountOption[];
-  categories: CategoryOption[];
+  lancamento: Lancamento;
+  nomeDaConta: string;
+  nomeDaCategoria?: string | null;
+  contas: Conta[];
+  categorias: Categoria[];
+  onMudou: () => void;
 }) {
   return (
     <div className="flex items-center gap-2">
       <div className="min-w-0 flex-1">
-        <TransactionRow tx={tx} />
+        <TransactionRow
+          tx={{
+            id: lancamento.id,
+            type: lancamento.type,
+            amount: lancamento.amount,
+            description: lancamento.description,
+            date: lancamento.date,
+            accountName: nomeDaConta,
+            categoryName: nomeDaCategoria,
+          }}
+        />
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <TransactionFormDialog
-          accounts={accounts}
-          categories={categories}
-          transaction={{
-            id: tx.id,
-            accountId: tx.accountId,
-            categoryId: tx.categoryId,
-            type: tx.type as "INCOME" | "EXPENSE",
-            amount: tx.amount,
-            description: tx.description,
-            date: tx.date,
-          }}
+          contas={contas}
+          categorias={categorias}
+          lancamento={lancamento}
+          onSalvo={onMudou}
         />
         <DeleteConfirmButton
           title="Excluir transação"
           description="Essa ação é permanente e ajusta o saldo da conta."
-          onConfirm={() => deleteTransaction(tx.id)}
+          onConfirm={async () => {
+            await excluirLancamento(lancamento);
+            onMudou();
+          }}
         />
       </div>
     </div>

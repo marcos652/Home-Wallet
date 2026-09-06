@@ -1,17 +1,17 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { logoutAction } from "@/lib/actions/auth";
+import { useFirebase } from "@/components/auth/firebase-provider";
 
 export function UserMenu({
   name,
@@ -22,6 +22,9 @@ export function UserMenu({
   email: string;
   initials: string;
 }) {
+  const { sair } = useFirebase();
+  const router = useRouter();
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="flex items-center gap-2 rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring">
@@ -32,17 +35,15 @@ export function UserMenu({
         </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium">{name}</span>
-            <span className="text-xs font-normal text-muted-foreground">{email}</span>
-          </DropdownMenuLabel>
-        </DropdownMenuGroup>
+        <DropdownMenuLabel className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium">{name}</span>
+          <span className="text-xs font-normal text-muted-foreground">{email}</span>
+        </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"
-          onClick={() => {
-            void logoutAction();
+          onSelect={() => {
+            void sair().then(() => router.replace("/login"));
           }}
         >
           <LogOut className="size-4" strokeWidth={1.75} />

@@ -1,38 +1,59 @@
+"use client";
+
+import { use } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/session";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { useFirebase } from "@/components/auth/firebase-provider";
+import { useAsync } from "@/lib/use-async";
+import {
+  buscarConta,
+  listarContas,
+  listarCategorias,
+  listarLancamentosDaConta,
+} from "@/lib/data";
 import { formatCurrency, accountTypeLabel } from "@/lib/format";
 import { TransactionFormDialog } from "@/components/dashboard/transaction-form-dialog";
 import { TransactionListItem } from "@/components/dashboard/transaction-list-item";
 
-export default async function AccountDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const user = await requireUser();
+export default function AccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const { perfil } = useFirebase();
+  const uid = perfil?.uid;
 
-  const account = await prisma.account.findUnique({ where: { id } });
-  if (!account || account.userId !== user.id) {
-    notFound();
+  const { dados, carregando, recarregar } = useAsync(async () => {
+    if (!uid) return null;
+    const [conta, contas, categorias, lancamentos] = await Promise.all([
+      buscarConta(id),
+      listarContas(uid),
+      listarCategorias(uid),
+      listarLancamentosDaConta(id),
+    ]);
+    return { conta, contas, categorias, lancamentos };
+  }, [uid, id]);
+
+  if (carregando) {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
-  const [accounts, categories, transactions] = await Promise.all([
-    prisma.account.findMany({ where: { userId: user.id, archived: false }, orderBy: { createdAt: "asc" } }),
-    prisma.category.findMany({ where: { userId: user.id }, orderBy: { name: "asc" } }),
-    prisma.transaction.findMany({
-      where: { accountId: account.id },
-      include: { category: true },
-      orderBy: { date: "desc" },
-      take: 200,
-    }),
-  ]);
+  if (!dados?.conta) {
+    return (
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-muted-foreground">Conta não encontrada.</p>
+        <Link href="/dashboard/accounts" className="text-sm text-primary hover:underline">
+          Voltar para contas
+        </Link>
+      </div>
+    );
+  }
 
-  const accountOptions = accounts.map((a) => ({ id: a.id, name: a.name }));
-  const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name, type: c.type }));
+  const { conta, contas, categorias, lancamentos } = dados;
+  const contasAtivas = contas.filter((c) => !c.archived);
+  const nomeCategoria = (cid: string | null) =>
+    cid ? categorias.find((c) => c.id === cid)?.name : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -46,43 +67,36 @@ export default async function AccountDetailPage({
 
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-sm text-muted-foreground">{accountTypeLabel(account.type)}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{account.name}</h1>
+          <p className="text-sm text-muted-foreground">{accountTypeLabel(conta.type)}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{conta.name}</h1>
           <p className="mt-1 text-3xl font-semibold tabular-nums">
-            {formatCurrency(account.balance, account.currency)}
+            {formatCurrency(conta.balance, conta.currency)}
           </p>
         </div>
         <TransactionFormDialog
-          accounts={accountOptions}
-          categories={categoryOptions}
-          defaultAccountId={account.id}
+          contas={contasAtivas}
+          categorias={categorias}
+          contaPadrao={conta.id}
+          onSalvo={recarregar}
         />
       </div>
 
       <div className="rounded-xl border border-border bg-card px-5">
-        {transactions.length === 0 ? (
+        {lancamentos.length === 0 ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
             Nenhuma transação nesta conta ainda.
           </p>
         ) : (
           <div className="divide-y divide-border">
-            {transactions.map((tx) => (
+            {lancamentos.map((l) => (
               <TransactionListItem
-                key={tx.id}
-                tx={{
-                  id: tx.id,
-                  type: tx.type,
-                  amount: tx.amount,
-                  description: tx.description,
-                  date: tx.date,
-                  accountName: account.name,
-                  categoryName: tx.category?.name,
-                  categoryColor: tx.category?.color,
-                  accountId: tx.accountId,
-                  categoryId: tx.categoryId,
-                }}
-                accounts={accountOptions}
-                categories={categoryOptions}
+                key={l.id}
+                lancamento={l}
+                nomeDaConta={conta.name}
+                nomeDaCategoria={nomeCategoria(l.categoryId)}
+                contas={contasAtivas}
+                categorias={categorias}
+                onMudou={recarregar}
               />
             ))}
           </div>

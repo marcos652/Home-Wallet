@@ -1,14 +1,18 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-import { prisma } from "@/lib/prisma";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  runTransaction,
+  Timestamp,
+  type Firestore,
+} from "firebase/firestore";
 import { decrypt } from "@/lib/crypto";
 import { parseNubankEmail } from "@/lib/email/parsers/nubank";
 import { htmlToText } from "@/lib/email/html-to-text";
-
-// The amount may be in either part depending on the notification, so read both.
-export function emailBody(text: string | undefined, html: string | false | undefined) {
-  return [text ?? "", html ? htmlToText(html) : ""].join(" ");
-}
 
 export type SyncResult = {
   imported: number;
@@ -17,40 +21,58 @@ export type SyncResult = {
   scanned: number;
 };
 
-const NUBANK_SENDER = "nubank";
-// On the very first run, look this far back instead of importing years of history.
-const FIRST_RUN_LOOKBACK_DAYS = 7;
+const REMETENTE = "nubank";
+const DIAS_NA_PRIMEIRA_VEZ = 7;
 
-export async function syncEmailTransactions(userId: string): Promise<SyncResult> {
-  const integration = await prisma.emailIntegration.findUnique({ where: { userId } });
+export function emailBody(text: string | undefined, html: string | false | undefined) {
+  return [text ?? "", html ? htmlToText(html) : ""].join(" ");
+}
 
-  if (!integration || !integration.enabled) {
-    throw new Error("Integração de email não está ativa.");
+// Migrações antigas guardavam a senha criptografada; o app novo grava em texto,
+// protegida pelas regras do Firestore. Aceita as duas formas.
+function senhaDoImap(guardada: string) {
+  if (!guardada.includes(":")) return guardada;
+  try {
+    return decrypt(guardada);
+  } catch {
+    return guardada;
   }
-  if (!integration.defaultAccountId) {
+}
+
+export async function syncEmailTransactions(
+  db: Firestore,
+  userId: string,
+): Promise<SyncResult> {
+  const integSnap = await getDoc(doc(db, "emailIntegrations", userId));
+  if (!integSnap.exists()) throw new Error("Integração de email não configurada.");
+
+  const integ = integSnap.data();
+  if (!integ.enabled) throw new Error("Integração de email não está ativa.");
+  if (!integ.defaultAccountId) {
     throw new Error("Escolha a conta que vai receber os lançamentos importados.");
   }
 
-  const account = await prisma.account.findUnique({
-    where: { id: integration.defaultAccountId },
-  });
-  if (!account || account.userId !== userId) {
+  const contaRef = doc(db, "accounts", integ.defaultAccountId as string);
+  if (!(await getDoc(contaRef)).exists()) {
     throw new Error("A conta de destino não existe mais. Escolha outra.");
   }
 
-  const since =
-    integration.lastSyncAt ??
-    new Date(Date.now() - FIRST_RUN_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const desde: Date = integ.lastSyncAt
+    ? (integ.lastSyncAt as Timestamp).toDate()
+    : new Date(Date.now() - DIAS_NA_PRIMEIRA_VEZ * 24 * 60 * 60 * 1000);
 
   const client = new ImapFlow({
-    host: integration.imapHost,
-    port: integration.imapPort,
+    host: (integ.imapHost as string) ?? "imap.gmail.com",
+    port: (integ.imapPort as number) ?? 993,
     secure: true,
-    auth: { user: integration.imapUser, pass: decrypt(integration.imapPasswordEnc) },
+    auth: {
+      user: integ.imapUser as string,
+      pass: senhaDoImap(integ.imapPasswordEnc as string),
+    },
     logger: false,
   });
 
-  const result: SyncResult = { imported: 0, skipped: 0, duplicates: 0, scanned: 0 };
+  const resultado: SyncResult = { imported: 0, skipped: 0, duplicates: 0, scanned: 0 };
 
   try {
     await client.connect();
@@ -58,82 +80,74 @@ export async function syncEmailTransactions(userId: string): Promise<SyncResult>
 
     try {
       for await (const message of client.fetch(
-        { from: NUBANK_SENDER, since },
+        { from: REMETENTE, since: desde },
         { envelope: true, source: true },
       )) {
-        result.scanned += 1;
+        resultado.scanned += 1;
 
         const messageId = message.envelope?.messageId;
         if (!messageId || !message.source) {
-          result.skipped += 1;
+          resultado.skipped += 1;
           continue;
         }
 
-        const seen = await prisma.processedEmail.findUnique({ where: { messageId } });
-        if (seen) {
-          result.duplicates += 1;
+        // O id do documento é o Message-ID: mesmo que o lançamento seja
+        // excluído depois, o email não é reimportado.
+        const vistoRef = doc(db, "processedEmails", messageId.replace(/\//g, "_"));
+        if ((await getDoc(vistoRef)).exists()) {
+          resultado.duplicates += 1;
           continue;
         }
 
         const mail = await simpleParser(message.source);
-        const parsed = parseNubankEmail({
+        const lido = parseNubankEmail({
           subject: mail.subject ?? "",
           text: emailBody(mail.text, mail.html),
           date: mail.date ?? message.envelope?.date ?? new Date(),
         });
 
-        if (!parsed) {
-          // Recorded too, so marketing mail is not re-parsed on every run.
-          await prisma.processedEmail.create({
-            data: { messageId, userId, imported: false },
-          });
-          result.skipped += 1;
+        if (!lido) {
+          await setDoc(vistoRef, { userId, imported: false, processedAt: Timestamp.now() });
+          resultado.skipped += 1;
           continue;
         }
 
-        const delta = parsed.type === "EXPENSE" ? -parsed.amount : parsed.amount;
+        const delta = lido.type === "EXPENSE" ? -lido.amount : lido.amount;
 
-        await prisma.$transaction([
-          prisma.transaction.create({
-            data: {
-              accountId: account.id,
-              type: parsed.type,
-              amount: parsed.amount,
-              description: parsed.description,
-              date: parsed.date,
-              source: "EMAIL",
-              externalId: messageId,
-            },
-          }),
-          prisma.account.update({
-            where: { id: account.id },
-            data: { balance: { increment: delta } },
-          }),
-          prisma.processedEmail.create({
-            data: { messageId, userId, imported: true },
-          }),
-        ]);
+        await runTransaction(db, async (tx) => {
+          const conta = await tx.get(contaRef);
+          if (!conta.exists()) throw new Error("Conta de destino sumiu durante a importação");
 
-        result.imported += 1;
+          tx.set(doc(collection(db, "transactions")), {
+            userId,
+            accountId: integ.defaultAccountId,
+            categoryId: null,
+            type: lido.type,
+            amount: lido.amount,
+            description: lido.description,
+            date: Timestamp.fromDate(lido.date),
+            source: "EMAIL",
+            externalId: messageId,
+            createdAt: Timestamp.now(),
+          });
+          tx.update(contaRef, { balance: conta.data().balance + delta });
+          tx.set(vistoRef, { userId, imported: true, processedAt: Timestamp.now() });
+        });
+
+        resultado.imported += 1;
       }
     } finally {
       lock.release();
     }
 
-    await prisma.emailIntegration.update({
-      where: { userId },
-      data: { lastSyncAt: new Date(), lastSyncError: null },
-    });
+    await updateDoc(integSnap.ref, { lastSyncAt: Timestamp.now(), lastSyncError: null });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Falha desconhecida na sincronização";
-    await prisma.emailIntegration.update({
-      where: { userId },
-      data: { lastSyncError: message },
-    });
-    throw new Error(message);
+    const mensagem = error instanceof Error ? error.message : "Falha na sincronização";
+    await updateDoc(integSnap.ref, { lastSyncError: mensagem }).catch(() => {});
+    throw new Error(mensagem);
   } finally {
     await client.logout().catch(() => {});
   }
 
-  return result;
+  return resultado;
 }

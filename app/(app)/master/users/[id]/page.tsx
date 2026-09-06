@@ -1,44 +1,62 @@
+"use client";
+
+import { use } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { ArrowLeft, Wallet, Layers, Receipt } from "lucide-react";
+import { ArrowLeft, Wallet, Layers, Receipt, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { TransactionRow } from "@/components/dashboard/transaction-row";
 import { UserStatusToggle } from "@/components/master/user-status-toggle";
-import { prisma } from "@/lib/prisma";
+import { useAsync } from "@/lib/use-async";
+import {
+  buscarUsuario,
+  contasDoUsuario,
+  lancamentosDoUsuario,
+  listarCategorias,
+} from "@/lib/data";
 import { formatCurrency, formatDate, accountTypeLabel, initials } from "@/lib/format";
 
-export default async function MasterUserDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+export default function MasterUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
 
-  const user = await prisma.user.findUnique({
-    where: { id },
-    include: {
-      accounts: { orderBy: { createdAt: "asc" } },
-    },
-  });
+  const { dados, carregando, recarregar } = useAsync(async () => {
+    const usuario = await buscarUsuario(id);
+    if (!usuario || usuario.role !== "USER") return null;
+    const [contas, lancamentos, categorias] = await Promise.all([
+      contasDoUsuario(id),
+      lancamentosDoUsuario(id, 500),
+      listarCategorias(id),
+    ]);
+    return { usuario, contas, lancamentos, categorias };
+  }, [id]);
 
-  if (!user || user.role !== "USER") {
-    notFound();
+  if (carregando) {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
-  const [transactionCount, recentTransactions] = await Promise.all([
-    prisma.transaction.count({ where: { account: { userId: user.id } } }),
-    prisma.transaction.findMany({
-      where: { account: { userId: user.id } },
-      include: { account: true, category: true },
-      orderBy: { date: "desc" },
-      take: 10,
-    }),
-  ]);
+  if (!dados) {
+    return (
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-muted-foreground">Usuário não encontrado.</p>
+        <Link href="/master/users" className="text-sm text-primary hover:underline">
+          Voltar para usuários
+        </Link>
+      </div>
+    );
+  }
 
-  const totalBalance = user.accounts.reduce((sum, a) => sum + a.balance, 0);
+  const { usuario, contas, lancamentos, categorias } = dados;
+  const totalBalance = contas.reduce((sum, a) => sum + a.balance, 0);
+  const recentes = lancamentos.slice(0, 10);
+  const nomeConta = (contaId: string) => contas.find((c) => c.id === contaId)?.name ?? "Conta";
+  const categoria = (categoryId: string | null) =>
+    categoryId ? categorias.find((c) => c.id === categoryId) : undefined;
 
   return (
     <div className="flex flex-col gap-6">
@@ -54,28 +72,28 @@ export default async function MasterUserDetailPage({
         <div className="flex items-center gap-3">
           <Avatar className="size-11">
             <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
-              {initials(user.name)}
+              {initials(usuario.name)}
             </AvatarFallback>
           </Avatar>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight">{user.name}</h1>
-              <Badge variant={user.status === "ACTIVE" ? "secondary" : "outline"}>
-                {user.status === "ACTIVE" ? "Ativo" : "Inativo"}
+              <h1 className="text-xl font-semibold tracking-tight">{usuario.name}</h1>
+              <Badge variant={usuario.status === "ACTIVE" ? "secondary" : "outline"}>
+                {usuario.status === "ACTIVE" ? "Ativo" : "Inativo"}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              {user.email} · desde {formatDate(user.createdAt)}
+              {usuario.email} · desde {formatDate(usuario.createdAt)}
             </p>
           </div>
         </div>
-        <UserStatusToggle userId={user.id} status={user.status} />
+        <UserStatusToggle userId={usuario.id} status={usuario.status} onMudou={recarregar} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label="Saldo total" value={formatCurrency(totalBalance)} icon={Wallet} />
-        <StatCard label="Contas" value={String(user.accounts.length)} icon={Layers} />
-        <StatCard label="Transações" value={String(transactionCount)} icon={Receipt} />
+        <StatCard label="Contas" value={String(contas.length)} icon={Layers} />
+        <StatCard label="Transações" value={String(lancamentos.length)} icon={Receipt} />
       </div>
 
       <Card>
@@ -83,11 +101,11 @@ export default async function MasterUserDetailPage({
           <CardTitle>Contas</CardTitle>
         </CardHeader>
         <CardContent>
-          {user.accounts.length === 0 ? (
+          {contas.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma conta cadastrada</p>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {user.accounts.map((account) => (
+              {contas.map((account) => (
                 <div key={account.id} className="flex flex-col gap-1 rounded-lg border border-border p-4">
                   <span className="text-sm text-muted-foreground">{accountTypeLabel(account.type)}</span>
                   <span className="text-sm font-medium">{account.name}</span>
@@ -106,10 +124,10 @@ export default async function MasterUserDetailPage({
           <CardTitle>Transações recentes</CardTitle>
         </CardHeader>
         <CardContent className="divide-y divide-border">
-          {recentTransactions.length === 0 ? (
+          {recentes.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma transação registrada</p>
           ) : (
-            recentTransactions.map((tx) => (
+            recentes.map((tx) => (
               <TransactionRow
                 key={tx.id}
                 tx={{
@@ -118,9 +136,9 @@ export default async function MasterUserDetailPage({
                   amount: tx.amount,
                   description: tx.description,
                   date: tx.date,
-                  accountName: tx.account.name,
-                  categoryName: tx.category?.name,
-                  categoryColor: tx.category?.color,
+                  accountName: nomeConta(tx.accountId),
+                  categoryName: categoria(tx.categoryId)?.name,
+                  categoryColor: categoria(tx.categoryId)?.color,
                 }}
               />
             ))

@@ -1,12 +1,23 @@
-import { redirect } from "next/navigation";
-import { getActiveUserRecord } from "@/lib/session";
+"use client";
 
-export default async function Home() {
-  const user = await getActiveUserRecord();
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
+import { useFirebase } from "@/components/auth/firebase-provider";
 
-  if (!user) {
-    redirect("/login");
-  }
+export default function Home() {
+  const { perfil, carregando } = useFirebase();
+  const router = useRouter();
 
-  redirect(user.role === "MASTER" ? "/master" : "/dashboard");
+  useEffect(() => {
+    if (carregando) return;
+    if (!perfil) router.replace("/login");
+    else router.replace(perfil.role === "MASTER" ? "/master" : "/dashboard");
+  }, [carregando, perfil, router]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+    </div>
+  );
 }

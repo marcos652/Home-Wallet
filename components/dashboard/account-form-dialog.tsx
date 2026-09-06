@@ -23,42 +23,51 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { createAccount, updateAccount } from "@/lib/actions/accounts";
-
+import { criarConta, atualizarConta, type Conta } from "@/lib/data";
+import { useFirebase } from "@/components/auth/firebase-provider";
 import { accountTypeLabel } from "@/lib/format";
 
-const ACCOUNT_TYPES = ["CHECKING", "SAVINGS", "CREDIT_CARD", "INVESTMENT", "CASH"] as const;
+const TIPOS = ["CHECKING", "SAVINGS", "CREDIT_CARD", "INVESTMENT", "CASH"] as const;
 
-type AccountFormValues = {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-};
-
-export function AccountFormDialog({ account }: { account?: AccountFormValues }) {
-  const isEditing = !!account;
+export function AccountFormDialog({
+  account,
+  onSalvo,
+}: {
+  account?: Conta;
+  onSalvo: () => void;
+}) {
+  const editando = !!account;
+  const { perfil } = useFirebase();
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string>();
-  const [isPending, startTransition] = useTransition();
+  const [erro, setErro] = useState<string>();
+  const [tipo, setTipo] = useState<Conta["type"]>(account?.type ?? "CHECKING");
+  const [pendente, iniciar] = useTransition();
 
-  function handleSubmit(formData: FormData) {
-    startTransition(async () => {
-      const action = isEditing ? updateAccount.bind(null, account.id) : createAccount;
-      const result = await action(formData);
-      if (result.error) {
-        setError(result.error);
-        return;
+  function salvar(formData: FormData) {
+    if (!perfil) return;
+    const name = String(formData.get("name") ?? "").trim();
+    const balance = Number(formData.get("balance"));
+
+    if (!name) return setErro("Informe um nome para a conta");
+    if (!Number.isFinite(balance)) return setErro("Informe um saldo válido");
+
+    iniciar(async () => {
+      try {
+        if (editando) await atualizarConta(account.id, { name, type: tipo, balance });
+        else await criarConta(perfil.uid, { name, type: tipo, balance });
+        setErro(undefined);
+        setOpen(false);
+        toast.success(editando ? "Conta atualizada" : "Conta criada");
+        onSalvo();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Não foi possível salvar");
       }
-      setError(undefined);
-      setOpen(false);
-      toast.success(isEditing ? "Conta atualizada" : "Conta criada");
     });
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {isEditing ? (
+      {editando ? (
         <DialogTrigger render={<Button variant="ghost" size="icon-sm" />}>
           <Pencil className="size-4" strokeWidth={1.75} />
           <span className="sr-only">Editar conta</span>
@@ -71,33 +80,36 @@ export function AccountFormDialog({ account }: { account?: AccountFormValues }) 
       )}
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Editar conta" : "Nova conta"}</DialogTitle>
+          <DialogTitle>{editando ? "Editar conta" : "Nova conta"}</DialogTitle>
           <DialogDescription>
-            {isEditing ? "Atualize os dados da conta." : "Cadastre uma nova conta ou carteira."}
+            {editando ? "Atualize os dados da conta." : "Cadastre uma nova conta ou carteira."}
           </DialogDescription>
         </DialogHeader>
-        <form action={handleSubmit} className="flex flex-col gap-4">
+        <form action={salvar} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="name">Nome</Label>
             <Input id="name" name="name" defaultValue={account?.name} placeholder="Ex: Conta corrente" required />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="type">Tipo</Label>
-            <Select name="type" defaultValue={account?.type ?? "CHECKING"}>
+            <Select
+              value={tipo}
+              onValueChange={(v) => setTipo((typeof v === "string" ? v : "CHECKING") as Conta["type"])}
+            >
               <SelectTrigger id="type" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {ACCOUNT_TYPES.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {accountTypeLabel(type)}
+                {TIPOS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {accountTypeLabel(t)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="balance">{isEditing ? "Saldo atual" : "Saldo inicial"}</Label>
+            <Label htmlFor="balance">{editando ? "Saldo atual" : "Saldo inicial"}</Label>
             <Input
               id="balance"
               name="balance"
@@ -107,11 +119,11 @@ export function AccountFormDialog({ account }: { account?: AccountFormValues }) 
               required
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {erro && <p className="text-sm text-destructive">{erro}</p>}
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="outline" />}>Cancelar</DialogClose>
-            <Button type="submit" disabled={isPending}>
-              {isPending && <Loader2 className="size-4 animate-spin" />}
+            <Button type="submit" disabled={pendente}>
+              {pendente && <Loader2 className="size-4 animate-spin" />}
               Salvar
             </Button>
           </DialogFooter>

@@ -64,7 +64,9 @@ service cloud.firestore {
     }
 
     match /processedEmails/{messageId} {
-      allow read: if souDono();
+      // A sincronização pergunta por um id que normalmente ainda não existe.
+      // Sem o teste de nulo, ler um documento ausente é negado.
+      allow read: if logado() && (resource == null || resource.data.userId == meuUid());
       allow create: if vouSerDono();
       allow update, delete: if false;
     }

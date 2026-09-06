@@ -23,62 +23,79 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { createTransaction, updateTransaction } from "@/lib/actions/transactions";
+import {
+  criarLancamento,
+  atualizarLancamento,
+  type Conta,
+  type Categoria,
+  type Lancamento,
+} from "@/lib/data";
+import { useFirebase } from "@/components/auth/firebase-provider";
 
-function toDateInputValue(date?: Date | string) {
-  const d = date ? new Date(date) : new Date();
-  return d.toISOString().slice(0, 10);
+function paraInput(d?: Date) {
+  return (d ?? new Date()).toISOString().slice(0, 10);
 }
 
-type AccountOption = { id: string; name: string };
-type CategoryOption = { id: string; name: string; type: "INCOME" | "EXPENSE" };
-
-type TransactionFormValues = {
-  id: string;
-  accountId: string;
-  categoryId: string | null;
-  type: "INCOME" | "EXPENSE";
-  amount: number;
-  description: string;
-  date: Date | string;
-};
-
 export function TransactionFormDialog({
-  accounts,
-  categories,
-  transaction,
-  defaultAccountId,
+  contas,
+  categorias,
+  lancamento,
+  contaPadrao,
+  onSalvo,
 }: {
-  accounts: AccountOption[];
-  categories: CategoryOption[];
-  transaction?: TransactionFormValues;
-  defaultAccountId?: string;
+  contas: Conta[];
+  categorias: Categoria[];
+  lancamento?: Lancamento;
+  contaPadrao?: string;
+  onSalvo: () => void;
 }) {
-  const isEditing = !!transaction;
+  const editando = !!lancamento;
+  const { perfil } = useFirebase();
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState<"INCOME" | "EXPENSE">(transaction?.type ?? "EXPENSE");
-  const [error, setError] = useState<string>();
-  const [isPending, startTransition] = useTransition();
+  const [tipo, setTipo] = useState<"INCOME" | "EXPENSE">(lancamento?.type ?? "EXPENSE");
+  const [contaId, setContaId] = useState(lancamento?.accountId ?? contaPadrao ?? "");
+  const [categoriaId, setCategoriaId] = useState(lancamento?.categoryId ?? "");
+  const [erro, setErro] = useState<string>();
+  const [pendente, iniciar] = useTransition();
 
-  function handleSubmit(formData: FormData) {
-    startTransition(async () => {
-      const action = isEditing ? updateTransaction.bind(null, transaction.id) : createTransaction;
-      const result = await action(formData);
-      if (result.error) {
-        setError(result.error);
-        return;
+  const categoriasDoTipo = categorias.filter((c) => c.type === tipo);
+
+  function salvar(formData: FormData) {
+    if (!perfil) return;
+    const amount = Number(formData.get("amount"));
+    const description = String(formData.get("description") ?? "").trim();
+    const date = new Date(`${formData.get("date")}T12:00:00`);
+
+    if (!contaId) return setErro("Selecione uma conta");
+    if (!(amount > 0)) return setErro("Informe um valor maior que zero");
+    if (!description) return setErro("Informe uma descrição");
+
+    const dados = {
+      accountId: contaId,
+      categoryId: categoriaId || null,
+      type: tipo,
+      amount,
+      description,
+      date,
+    };
+
+    iniciar(async () => {
+      try {
+        if (editando) await atualizarLancamento(lancamento.id, lancamento, dados);
+        else await criarLancamento(perfil.uid, dados);
+        setErro(undefined);
+        setOpen(false);
+        toast.success(editando ? "Transação atualizada" : "Transação criada");
+        onSalvo();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : "Não foi possível salvar");
       }
-      setError(undefined);
-      setOpen(false);
-      toast.success(isEditing ? "Transação atualizada" : "Transação criada");
     });
   }
 
-  const filteredCategories = categories.filter((c) => c.type === type);
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {isEditing ? (
+      {editando ? (
         <DialogTrigger render={<Button variant="ghost" size="icon-sm" />}>
           <Pencil className="size-4" strokeWidth={1.75} />
           <span className="sr-only">Editar transação</span>
@@ -91,40 +108,42 @@ export function TransactionFormDialog({
       )}
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Editar transação" : "Nova transação"}</DialogTitle>
+          <DialogTitle>{editando ? "Editar transação" : "Nova transação"}</DialogTitle>
           <DialogDescription>
-            {isEditing ? "Atualize os dados do lançamento." : "Registre uma nova movimentação."}
+            {editando ? "Atualize os dados do lançamento." : "Registre uma nova movimentação."}
           </DialogDescription>
         </DialogHeader>
-        <form action={handleSubmit} className="flex flex-col gap-4">
+        <form action={salvar} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
-              variant={type === "EXPENSE" ? "default" : "outline"}
-              onClick={() => setType("EXPENSE")}
+              variant={tipo === "EXPENSE" ? "default" : "outline"}
+              onClick={() => setTipo("EXPENSE")}
             >
               Despesa
             </Button>
             <Button
               type="button"
-              variant={type === "INCOME" ? "default" : "outline"}
-              onClick={() => setType("INCOME")}
+              variant={tipo === "INCOME" ? "default" : "outline"}
+              onClick={() => setTipo("INCOME")}
             >
               Receita
             </Button>
           </div>
-          <input type="hidden" name="type" value={type} />
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="accountId">Conta</Label>
-            <Select name="accountId" defaultValue={transaction?.accountId ?? defaultAccountId}>
+            <Select
+              value={contaId}
+              onValueChange={(v) => setContaId(typeof v === "string" ? v : "")}
+            >
               <SelectTrigger id="accountId" className="w-full">
                 <SelectValue placeholder="Selecione uma conta" />
               </SelectTrigger>
               <SelectContent>
-                {accounts.map((account) => (
-                  <SelectItem key={account.id} value={account.id}>
-                    {account.name}
+                {contas.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -133,14 +152,17 @@ export function TransactionFormDialog({
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="categoryId">Categoria</Label>
-            <Select name="categoryId" defaultValue={transaction?.categoryId ?? undefined}>
+            <Select
+              value={categoriaId}
+              onValueChange={(v) => setCategoriaId(typeof v === "string" ? v : "")}
+            >
               <SelectTrigger id="categoryId" className="w-full">
                 <SelectValue placeholder="Selecione uma categoria" />
               </SelectTrigger>
               <SelectContent>
-                {filteredCategories.map((category) => (
-                  <SelectItem key={category.id} value={category.id}>
-                    {category.name}
+                {categoriasDoTipo.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -156,7 +178,7 @@ export function TransactionFormDialog({
                 type="number"
                 step="0.01"
                 min="0"
-                defaultValue={transaction?.amount}
+                defaultValue={lancamento?.amount}
                 required
               />
             </div>
@@ -166,7 +188,7 @@ export function TransactionFormDialog({
                 id="date"
                 name="date"
                 type="date"
-                defaultValue={toDateInputValue(transaction?.date)}
+                defaultValue={paraInput(lancamento?.date)}
                 required
               />
             </div>
@@ -177,17 +199,17 @@ export function TransactionFormDialog({
             <Input
               id="description"
               name="description"
-              defaultValue={transaction?.description}
+              defaultValue={lancamento?.description}
               placeholder="Ex: Supermercado"
               required
             />
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {erro && <p className="text-sm text-destructive">{erro}</p>}
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="outline" />}>Cancelar</DialogClose>
-            <Button type="submit" disabled={isPending}>
-              {isPending && <Loader2 className="size-4 animate-spin" />}
+            <Button type="submit" disabled={pendente}>
+              {pendente && <Loader2 className="size-4 animate-spin" />}
               Salvar
             </Button>
           </DialogFooter>

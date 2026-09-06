@@ -1,40 +1,35 @@
 import "dotenv/config";
-import { prisma } from "../lib/prisma";
+import { initializeApp } from "firebase/app";
+import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 import { syncEmailTransactions } from "../lib/email/sync";
 
+// Roda fora do navegador, então entra no Firebase como o próprio usuário —
+// as mesmas regras de segurança valem aqui.
 async function main() {
-  const integrations = await prisma.emailIntegration.findMany({
-    where: { enabled: true },
-    include: { user: { select: { email: true, status: true } } },
+  const email = process.env.SYNC_USER_EMAIL;
+  const senha = process.env.SYNC_USER_PASSWORD;
+  if (!email || !senha) {
+    throw new Error("Defina SYNC_USER_EMAIL e SYNC_USER_PASSWORD no .env");
+  }
+
+  const app = initializeApp({
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
   });
 
-  if (integrations.length === 0) {
-    console.log("Nenhuma integração de email ativa.");
-    return;
-  }
+  const cred = await signInWithEmailAndPassword(getAuth(app), email, senha);
+  const r = await syncEmailTransactions(getFirestore(app), cred.user.uid);
 
-  for (const integration of integrations) {
-    if (integration.user.status !== "ACTIVE") continue;
-
-    const label = integration.user.email;
-    try {
-      const result = await syncEmailTransactions(integration.userId);
-      console.log(
-        `[${label}] ${result.imported} importada(s), ${result.duplicates} duplicada(s), ` +
-          `${result.skipped} ignorada(s), ${result.scanned} email(s) lido(s).`,
-      );
-    } catch (error) {
-      console.error(`[${label}] falhou:`, error instanceof Error ? error.message : error);
-      process.exitCode = 1;
-    }
-  }
+  console.log(
+    `[${email}] ${r.imported} importada(s), ${r.duplicates} duplicada(s), ` +
+      `${r.skipped} ignorada(s), ${r.scanned} email(s) lido(s).`,
+  );
+  process.exit(0);
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main().catch((e) => {
+  console.error("falhou:", e instanceof Error ? e.message : e);
+  process.exit(1);
+});

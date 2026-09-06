@@ -1,12 +1,10 @@
-import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
-import { requireActiveUserRecord } from "@/lib/session";
+import { Guard } from "@/components/auth/guard";
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireActiveUserRecord();
-  if (user.role === "MASTER") {
-    redirect("/master");
-  }
-
-  return <AppShell user={user}>{children}</AppShell>;
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Guard papel="USER">
+      <AppShell>{children}</AppShell>
+    </Guard>
+  );
 }
