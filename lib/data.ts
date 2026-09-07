@@ -11,7 +11,6 @@ import {
   deleteDoc,
   query,
   where,
-  orderBy,
   limit as fsLimit,
   runTransaction,
   Timestamp,
@@ -165,16 +164,15 @@ function paraLancamento(d: { id: string; data: () => Record<string, unknown> }):
   return { id: d.id, ...v, date: data(v.date) } as Lancamento;
 }
 
+// Ordenar no Firestore junto com o filtro exigiria um índice composto criado à
+// mão no console. Como o volume por usuário é pequeno, ordenamos aqui.
 export async function listarLancamentos(userId: string, max = 200): Promise<Lancamento[]> {
   const snap = await getDocs(
-    query(
-      collection(db(), COLECOES.transactions),
-      where("userId", "==", userId),
-      orderBy("date", "desc"),
-      fsLimit(max),
-    ),
+    query(collection(db(), COLECOES.transactions), where("userId", "==", userId), fsLimit(max)),
   );
-  return snap.docs.map(paraLancamento);
+  return snap.docs
+    .map(paraLancamento)
+    .sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 
 export async function listarLancamentosDaConta(accountId: string): Promise<Lancamento[]> {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useFirebase } from "@/components/auth/firebase-provider";
 import { useAsync } from "@/lib/use-async";
+import { Falhou } from "@/components/dashboard/estado";
 import {
   buscarConta,
   listarContas,
@@ -20,7 +21,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
   const { perfil } = useFirebase();
   const uid = perfil?.uid;
 
-  const { dados, carregando, recarregar } = useAsync(async () => {
+  const { dados, carregando, erro, recarregar } = useAsync(async () => {
     if (!uid) return null;
     const [conta, contas, categorias, lancamentos] = await Promise.all([
       buscarConta(id),
@@ -31,6 +32,7 @@ export default function AccountDetailPage({ params }: { params: Promise<{ id: st
     return { conta, contas, categorias, lancamentos };
   }, [uid, id]);
 
+  if (erro) return <Falhou erro={erro} />;
   if (carregando) {
     return (
       <div className="flex justify-center py-20">

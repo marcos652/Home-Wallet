@@ -12,6 +12,7 @@ import {
 import { TransactionRow } from "@/components/dashboard/transaction-row";
 import { useFirebase } from "@/components/auth/firebase-provider";
 import { useAsync } from "@/lib/use-async";
+import { Falhou } from "@/components/dashboard/estado";
 import { listarContas, listarCategorias, listarLancamentos } from "@/lib/data";
 import { formatCurrency, accountTypeLabel } from "@/lib/format";
 
@@ -19,7 +20,7 @@ export default function DashboardOverviewPage() {
   const { perfil } = useFirebase();
   const uid = perfil?.uid;
 
-  const { dados, carregando } = useAsync(async () => {
+  const { dados, carregando, erro } = useAsync(async () => {
     if (!uid) return null;
     const [contas, categorias, lancamentos] = await Promise.all([
       listarContas(uid),
@@ -29,6 +30,7 @@ export default function DashboardOverviewPage() {
     return { contas, categorias, lancamentos };
   }, [uid]);
 
+  if (erro) return <Falhou erro={erro} />;
   if (carregando || !dados) {
     return (
       <div className="flex justify-center py-20">

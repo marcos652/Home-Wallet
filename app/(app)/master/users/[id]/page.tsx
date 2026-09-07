@@ -10,6 +10,7 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { TransactionRow } from "@/components/dashboard/transaction-row";
 import { UserStatusToggle } from "@/components/master/user-status-toggle";
 import { useAsync } from "@/lib/use-async";
+import { Falhou } from "@/components/dashboard/estado";
 import {
   buscarUsuario,
   contasDoUsuario,
@@ -21,7 +22,7 @@ import { formatCurrency, formatDate, accountTypeLabel, initials } from "@/lib/fo
 export default function MasterUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
 
-  const { dados, carregando, recarregar } = useAsync(async () => {
+  const { dados, carregando, erro, recarregar } = useAsync(async () => {
     const usuario = await buscarUsuario(id);
     if (!usuario || usuario.role !== "USER") return null;
     const [contas, lancamentos, categorias] = await Promise.all([
@@ -32,6 +33,7 @@ export default function MasterUserDetailPage({ params }: { params: Promise<{ id:
     return { usuario, contas, lancamentos, categorias };
   }, [id]);
 
+  if (erro) return <Falhou erro={erro} />;
   if (carregando) {
     return (
       <div className="flex justify-center py-20">

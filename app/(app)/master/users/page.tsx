@@ -15,6 +15,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { UserStatusToggle } from "@/components/master/user-status-toggle";
 import { useFirebase } from "@/components/auth/firebase-provider";
 import { useAsync } from "@/lib/use-async";
+import { Falhou } from "@/components/dashboard/estado";
 import { listarUsuarios, contasDoUsuario } from "@/lib/data";
 import { formatCurrency, formatDate, initials } from "@/lib/format";
 
@@ -23,13 +24,15 @@ export default function MasterUsersPage() {
   const uid = perfil?.uid;
 
   // Sem join no Firestore: as contas de cada usuário vêm em consultas separadas.
-  const { dados: usuarios, carregando, recarregar } = useAsync(async () => {
+  const { dados: usuarios, carregando, erro, recarregar } = useAsync(async () => {
     if (!uid) return null;
     const lista = await listarUsuarios();
     return Promise.all(
       lista.map(async (u) => ({ ...u, accounts: await contasDoUsuario(u.id) })),
     );
   }, [uid]);
+
+  if (erro) return <Falhou erro={erro} />;
 
   if (carregando || !usuarios) {
     return (

@@ -6,6 +6,7 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { UserGrowthChart, type MonthlySignups } from "@/components/master/user-growth-chart";
 import { useFirebase } from "@/components/auth/firebase-provider";
 import { useAsync } from "@/lib/use-async";
+import { Falhou } from "@/components/dashboard/estado";
 import { listarUsuarios, contasDoUsuario, lancamentosDoUsuario } from "@/lib/data";
 import { formatCurrency } from "@/lib/format";
 
@@ -14,7 +15,7 @@ export default function MasterOverviewPage() {
   const uid = perfil?.uid;
 
   // O Firestore não agrega no banco: buscamos tudo e somamos aqui no cliente.
-  const { dados, carregando } = useAsync(async () => {
+  const { dados, carregando, erro } = useAsync(async () => {
     if (!uid) return null;
     const usuarios = await listarUsuarios();
     const carteiras = await Promise.all(
@@ -29,6 +30,7 @@ export default function MasterOverviewPage() {
     return { usuarios, carteiras };
   }, [uid]);
 
+  if (erro) return <Falhou erro={erro} />;
   if (carregando || !dados) {
     return (
       <div className="flex justify-center py-20">
