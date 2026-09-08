@@ -4,6 +4,7 @@ import { PiggyBank } from "lucide-react";
 import { PrimaryNav, SettingsNav } from "@/components/layout/sidebar-nav";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { UserMenu } from "@/components/layout/user-menu";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { useFirebase } from "@/components/auth/firebase-provider";
 import { initials } from "@/lib/format";
 
@@ -41,7 +42,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="text-sm font-semibold">Home Wallet</span>
             </div>
           </div>
-          <UserMenu name={perfil.name} email={perfil.email} initials={initials(perfil.name)} />
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <UserMenu name={perfil.name} email={perfil.email} initials={initials(perfil.name)} />
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">{children}</main>

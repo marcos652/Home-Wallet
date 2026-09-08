@@ -1,10 +1,14 @@
 import { PiggyBank } from "lucide-react";
 import { GuardVisitante } from "@/components/auth/guard";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <GuardVisitante>
-      <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
+      <div className="relative flex min-h-screen items-center justify-center bg-muted/40 px-4">
+        <div className="absolute right-4 top-4">
+          <ThemeToggle />
+        </div>
         <div className="w-full max-w-sm">
           <div className="mb-8 flex flex-col items-center gap-2 text-center">
             <div className="flex size-11 items-center justify-center rounded-xl bg-primary">
