@@ -3,7 +3,8 @@
 import { Loader2 } from "lucide-react";
 import { useFirebase } from "@/components/auth/firebase-provider";
 import { useAsync } from "@/lib/use-async";
-import { listarContas, listarCategorias, listarLancamentos } from "@/lib/data";
+import { listarContas, listarCategorias, listarLancamentos, buscarIntegracao } from "@/lib/data";
+import { SyncModal } from "@/components/dashboard/sync-modal";
 import { TransactionFormDialog } from "@/components/dashboard/transaction-form-dialog";
 import { TransactionListItem } from "@/components/dashboard/transaction-list-item";
 
@@ -13,12 +14,13 @@ export default function TransactionsPage() {
 
   const { dados, carregando, recarregar } = useAsync(async () => {
     if (!uid) return null;
-    const [contas, categorias, lancamentos] = await Promise.all([
+    const [contas, categorias, lancamentos, integracao] = await Promise.all([
       listarContas(uid),
       listarCategorias(uid),
       listarLancamentos(uid),
+      buscarIntegracao(uid),
     ]);
-    return { contas, categorias, lancamentos };
+    return { contas, categorias, lancamentos, integracao };
   }, [uid]);
 
   const contasAtivas = dados?.contas.filter((c) => !c.archived) ?? [];
@@ -34,11 +36,19 @@ export default function TransactionsPage() {
           <p className="text-sm text-muted-foreground">Todos os seus lançamentos.</p>
         </div>
         {dados && (
-          <TransactionFormDialog
-            contas={contasAtivas}
-            categorias={dados.categorias}
-            onSalvo={recarregar}
-          />
+          <div className="flex items-center gap-2">
+            {dados.integracao?.enabled && (
+              <SyncModal
+                lastSyncAt={dados.integracao.lastSyncAt}
+                onImportou={recarregar}
+              />
+            )}
+            <TransactionFormDialog
+              contas={contasAtivas}
+              categorias={dados.categorias}
+              onSalvo={recarregar}
+            />
+          </div>
         )}
       </div>
 

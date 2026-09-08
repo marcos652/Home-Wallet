@@ -10,7 +10,7 @@ import {
   Timestamp,
   type Firestore,
 } from "firebase/firestore";
-import { decrypt } from "@/lib/crypto";
+import { senhaDoImap } from "@/lib/email/senha";
 import { parseNubankEmail } from "@/lib/email/parsers/nubank";
 import { htmlToText } from "@/lib/email/html-to-text";
 
@@ -26,17 +26,6 @@ const DIAS_NA_PRIMEIRA_VEZ = 7;
 
 export function emailBody(text: string | undefined, html: string | false | undefined) {
   return [text ?? "", html ? htmlToText(html) : ""].join(" ");
-}
-
-// Migrações antigas guardavam a senha criptografada; o app novo grava em texto,
-// protegida pelas regras do Firestore. Aceita as duas formas.
-function senhaDoImap(guardada: string) {
-  if (!guardada.includes(":")) return guardada;
-  try {
-    return decrypt(guardada);
-  } catch {
-    return guardada;
-  }
 }
 
 export async function syncEmailTransactions(
