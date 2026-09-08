@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { FirebaseProvider } from "@/components/auth/firebase-provider";
@@ -18,6 +18,22 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Home Wallet — Gestão financeira",
   description: "Gestão financeira pessoal, simples e organizada.",
+  // Faz o iPhone abrir em tela cheia quando instalado pela tela de início.
+  appleWebApp: {
+    capable: true,
+    title: "Home Wallet",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
+  // Evita o zoom involuntário ao tocar nos campos no iOS.
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
