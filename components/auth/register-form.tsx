@@ -27,6 +27,12 @@ function mensagemDeErro(codigo: string) {
   if (codigo === "auth/email-already-in-use") return "Já existe uma conta com este email";
   if (codigo === "auth/weak-password") return "A senha deve ter ao menos 6 caracteres";
   if (codigo === "auth/invalid-email") return "Email inválido";
+  if (codigo === "auth/unauthorized-domain") {
+    return "Este endereço não está liberado no Firebase (Authentication → Settings → Domínios autorizados).";
+  }
+  if (codigo === "auth/operation-not-allowed") {
+    return "Cadastro por email e senha está desativado no Firebase.";
+  }
   return "Não foi possível criar a conta";
 }
 

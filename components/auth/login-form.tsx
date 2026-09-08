@@ -11,6 +11,24 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { auth } from "@/lib/firebase-client";
 
+function mensagemDeErro(codigo: string) {
+  // Falha de configuração não é culpa da senha: dizer "senha inválida" aqui
+  // mandaria você caçar o problema no lugar errado.
+  if (codigo === "auth/unauthorized-domain") {
+    return "Este endereço não está liberado no Firebase (Authentication → Settings → Domínios autorizados).";
+  }
+  if (codigo === "auth/network-request-failed") return "Sem conexão. Verifique sua internet.";
+  if (codigo === "auth/too-many-requests") {
+    return "Muitas tentativas. Aguarde alguns minutos e tente de novo.";
+  }
+  if (codigo === "auth/operation-not-allowed") {
+    return "Login por email e senha está desativado no Firebase.";
+  }
+  // O Firebase não distingue email inexistente de senha errada quando a
+  // proteção contra enumeração está ligada — e é melhor assim.
+  return "Email ou senha inválidos";
+}
+
 export function LoginForm() {
   const router = useRouter();
   const [erro, setErro] = useState<string>();
@@ -24,10 +42,8 @@ export function LoginForm() {
       try {
         await signInWithEmailAndPassword(auth(), email, senha);
         router.replace("/");
-      } catch {
-        // O Firebase não distingue email inexistente de senha errada quando a
-        // proteção contra enumeração está ligada — e é melhor assim.
-        setErro("Email ou senha inválidos");
+      } catch (e) {
+        setErro(mensagemDeErro((e as { code?: string })?.code ?? ""));
       }
     });
   }
